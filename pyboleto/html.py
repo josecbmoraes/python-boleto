@@ -187,6 +187,13 @@ class BoletoHTML(object):
         valor_doc = self._formataValorParaExibir(boletoDados.valor_documento)
         tpl_data['valor_documento'] = valor_doc
 
+        valor_desconto = self._formataValorParaExibir(
+            boletoDados.valor_desconto)
+        tpl_data['valor_desconto'] = valor_desconto
+
+        valor_cobrado = self._formataValorParaExibir(boletoDados.valor_cobrado)
+        tpl_data['valor_cobrado'] = valor_cobrado
+
         # Instruções
         tpl_data['instrucoes'] = ''
         for instrucao in boletoDados.instrucoes:
