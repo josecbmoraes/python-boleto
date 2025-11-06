@@ -12,6 +12,7 @@
 """
 import datetime
 from decimal import Decimal
+from datetime import timedelta
 
 
 class BoletoException(Exception):
@@ -212,10 +213,15 @@ class BoletoData(object):
                      len(value)))
 
         due_date_days = (self.data_vencimento - _EPOCH).days
-        if not (9999 >= due_date_days >= 0):
+        MAX_DAYS = 9999
+        MAX_DATE = _EPOCH + timedelta(days=MAX_DAYS)
+
+        if not (0 <= due_date_days <= MAX_DAYS):
             raise TypeError(
-                "Invalid date, must be between 1997/07/01 and "
-                "2024/11/15")
+                f"Invalid date, must be between {_EPOCH.strftime('%Y/%m/%d')} "
+                f"and {MAX_DATE.strftime('%Y/%m/%d')}"
+            )
+
         num = "%s%1s%04d%010d%24s" % (self.codigo_banco,
                                       self.moeda,
                                       due_date_days,
