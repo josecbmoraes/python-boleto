@@ -480,6 +480,12 @@ class BoletoData(object):
     def modulo10(num):
         if not isinstance(num, str):
             raise TypeError
+        # Sanitiza: mantém apenas dígitos (evita crashes com 'SR', hífens, espaços, etc.)
+        num = ''.join(ch for ch in num if ch.isdigit())
+        if not num:
+            # Mantém comportamento explícito se nada restar (entrada inválida)
+            raise BoletoException("modulo10 recebeu sequência vazia ou sem dígitos")
+    
         soma = 0
         peso = 2
         for c in reversed(num):
@@ -503,8 +509,14 @@ class BoletoData(object):
 
     @staticmethod
     def modulo11(num, base=9, r=0):
+
         if not isinstance(num, str):
             raise TypeError
+        # Sanitiza: mantém apenas dígitos
+        num = ''.join(ch for ch in num if ch.isdigit())
+        if not num:
+            raise BoletoException("modulo11 recebeu sequência vazia ou sem dígitos")
+
         soma = 0
         fator = 2
         for c in reversed(num):

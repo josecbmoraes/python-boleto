@@ -111,7 +111,7 @@ def print_bradesco():
         d.cedente_endereco = ("Rua Acme, 123 - Centro - Sao Paulo/SP - " +
                               "CEP: 12345-678")
         d.agencia_cedente = '0278-0'
-        d.conta_cedente = '43905-3'
+        d.conta_cedente = '43905'
 
         d.data_vencimento = datetime.date(2011, 1, 25)
         d.data_documento = datetime.date(2010, 2, 12)
@@ -204,13 +204,13 @@ def print_caixa():
     listaDadosCaixa = []
     for i in range(2):
         d = BoletoCaixa()
-        d.carteira = 'SR'  # Contrato firmado com o Banco Bradesco
+        d.carteira = '1'  # Contrato firmado com o Banco Bradesco
         d.cedente = 'Empresa ACME LTDA'
         d.cedente_documento = "102.323.777-01"
         d.cedente_endereco = ("Rua Acme, 123 - Centro - Sao Paulo/SP - " +
                               "CEP: 12345-678")
         d.agencia_cedente = '1565'
-        d.conta_cedente = '414-3'
+        d.conta_cedente = '4143'
 
         d.data_vencimento = datetime.date(2010, 3, 27)
         d.data_documento = datetime.date(2010, 2, 12)
