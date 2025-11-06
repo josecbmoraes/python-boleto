@@ -213,7 +213,7 @@ class BoletoData(object):
                      len(value)))
 
         due_date_days = (self.data_vencimento - _EPOCH).days
-        MAX_DAYS = 9999
+        MAX_DAYS = 99999999999
         MAX_DATE = _EPOCH + timedelta(days=MAX_DAYS)
 
         if not (0 <= due_date_days <= MAX_DAYS):
