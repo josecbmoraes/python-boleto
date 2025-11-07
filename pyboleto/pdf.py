@@ -10,11 +10,15 @@
 
 """
 import os
+from decimal import Decimal, InvalidOperation
+from io import BytesIO
+from urllib.request import urlopen
 
 from reportlab.graphics.barcode.common import I2of5
 from reportlab.lib.colors import black
 from reportlab.lib.pagesizes import A4, landscape as pagesize_landscape
 from reportlab.lib.units import mm, cm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
@@ -519,13 +523,88 @@ class BoletoPDF(object):
         )
 
         self.pdf_canvas.setFont('Helvetica', self.font_size_value)
-        instrucoes = boleto_dados.instrucoes
-        for i in range(len(instrucoes)):
-            self.pdf_canvas.drawString(
-                2 * self.space,
-                y - (i * self.delta_font),
-                instrucoes[i]
-            )
+        instrucoes = boleto_dados.instrucoes or []
+
+        right_col_x = self.width - (45 * mm)
+        left_box_x0, left_box_x1 = 0, right_col_x
+        gutter = 4 * self.space
+
+        qr_box = None
+        qr_url = getattr(boleto_dados, 'qrcode_pix_url', None)
+        if qr_url:
+            try:
+                qr_image = load_image_from_url(qr_url)
+                img_width, img_height = qr_image.getSize()
+                available_width = left_box_x1 - left_box_x0
+                if img_width and img_height and available_width > 0:
+                    qr_width = min(20 * mm, 0.15 * available_width)
+                    qr_height = qr_width * (float(img_height) / float(img_width))
+                    qr_top = y + (0.5 * self.delta_font)
+                    qr_x = left_box_x1 - qr_width - self.space
+                    qr_y = qr_top - qr_height
+                    min_y = 0
+                    if qr_y < min_y:
+                        available_height = qr_top - min_y
+                        if available_height > 0 and qr_height > 0:
+                            scale = available_height / qr_height
+                            qr_width *= scale
+                            qr_height *= scale
+                            qr_y = qr_top - qr_height
+                        else:
+                            qr_x = None
+                    if qr_x is not None and qr_width > 0 and qr_height > 0:
+                        qr_box = {
+                            'image': qr_image,
+                            'width': qr_width,
+                            'height': qr_height,
+                            'x': qr_x,
+                            'y': qr_y
+                        }
+            except Exception:
+                qr_box = None
+
+        font_name = self.pdf_canvas._fontname  # pylint: disable=protected-access
+        font_size = self.pdf_canvas._fontsize  # pylint: disable=protected-access
+
+        if qr_box:
+            try:
+                self.pdf_canvas.drawImage(
+                    qr_box['image'],
+                    qr_box['x'],
+                    qr_box['y'],
+                    qr_box['width'],
+                    qr_box['height'],
+                    preserveAspectRatio=True,
+                    anchor='sw'
+                )
+                self.pdf_canvas.setFont('Helvetica', 7)
+                label_y = qr_box['y'] - (0.4 * self.height_line)
+                self.pdf_canvas.drawCentredString(
+                    qr_box['x'] + (qr_box['width'] / 2.0),
+                    label_y,
+                    'Pagar com PIX'
+                )
+                self.pdf_canvas.setFont(font_name, font_size)
+            except Exception:
+                qr_box = None
+
+        if qr_box:
+            text_max_w = (qr_box['x'] - gutter) - (2 * self.space)
+            if text_max_w <= 0:
+                text_max_w = max(left_box_x1 - (2 * self.space), 1)
+        else:
+            text_max_w = left_box_x1 - (2 * self.space)
+
+        draw_y = y
+        for instr in instrucoes:
+            for line in self._wrap_text(instr, text_max_w, font_name, font_size):
+                self.pdf_canvas.drawString(
+                    2 * self.space,
+                    draw_y,
+                    line
+                )
+                draw_y -= self.delta_font
+
         self.pdf_canvas.setFont('Helvetica', self.font_size_title)
 
         # Linha horizontal com primeiro campo Uso do Banco
@@ -866,12 +945,43 @@ class BoletoPDF(object):
         self.pdf_canvas.line(x, y, x, y + width)
 
     def _formataValorParaExibir(self, nfloat):
-        if nfloat:
-            txt = nfloat
-            txt = txt.replace('.', ',')
+        if nfloat is None:
+            return ""
+        if isinstance(nfloat, (int, float, Decimal)):
+            try:
+                value = Decimal(str(nfloat))
+                txt = format(value, '.2f')
+            except (InvalidOperation, ValueError):
+                txt = str(nfloat)
         else:
-            txt = ""
-        return txt
+            txt = str(nfloat)
+        return txt.replace('.', ',')
+
+    def _wrap_text(self, text, max_width, font_name='Helvetica', font_size=None):
+        """Wrap instructions text so it respects a maximum drawing width."""
+        if text is None:
+            text = ''
+        if font_size is None:
+            font_size = self.font_size_value
+        if max_width <= 0:
+            return [text]
+        cleaned = str(text)
+        if not cleaned:
+            return ['']
+        words = cleaned.split()
+        if not words:
+            return ['']
+        lines = []
+        current = words[0]
+        for word in words[1:]:
+            candidate = f'{current} {word}'
+            if stringWidth(candidate, font_name, font_size) <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+        return lines
 
     def _codigoBarraI25(self, num, x, y):
         """Imprime Código de barras otimizado para boletos
@@ -901,6 +1011,13 @@ class BoletoPDF(object):
         bc.__init__(num, barWidth=thin_bar)
 
         bc.drawOn(self.pdf_canvas, x, y)
+
+
+def load_image_from_url(url):
+    """Fetch image bytes from URL and return an ImageReader."""
+    with urlopen(url, timeout=10) as response:
+        data = response.read()
+    return ImageReader(BytesIO(data))
 
 
 def load_image(logo_image):
