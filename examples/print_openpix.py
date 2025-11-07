@@ -75,27 +75,47 @@ def build_boleto_itau(
     return d
 
 
-def render_boletos(lista_boletos: list[BoletoItau], saida_pdf: str) -> None:
+def render_boletos(
+    lista_boletos: list[BoletoItau],
+    saida_pdf: str,
+    *,
+    carne_width_pct: float | None = None,
+) -> None:
     """
     - 1 parcela -> formato normal (retrato, 1 por página)
-    - 2+ parcelas -> formato carnê (paisagem, 2 por página)
+    - 2 parcelas -> formato carnê (paisagem, 2 por página)
+    - 3+ parcelas -> layout triplo (retrato, 3 módulos por página)
     """
-    if not lista_boletos:
-        raise ValueError("lista_boletos não pode ser vazia")
-    is_carne = len(lista_boletos) >= 2
-    boleto_pdf = BoletoPDF(saida_pdf, landscape=is_carne)
+    n = len(lista_boletos)
+    if n == 0:
+        return
 
-    if not is_carne:
-        boleto_pdf.drawBoleto(lista_boletos[0])
-        boleto_pdf.nextPage()
-    else:
-        for i in range(0, len(lista_boletos), 2):
-            b1 = lista_boletos[i]
-            b2 = lista_boletos[i + 1] if (i + 1) < len(lista_boletos) else None
-            boleto_pdf.drawBoletoCarneDuplo(b1, b2)
-            boleto_pdf.nextPage()
+    if n == 1:
+        pdf = BoletoPDF(saida_pdf, landscape=False)
+        pdf.drawBoleto(lista_boletos[0])
+        pdf.nextPage()
+        pdf.save()
+        return
 
-    boleto_pdf.save()
+    if n == 2:
+        pdf = BoletoPDF(
+            saida_pdf,
+            landscape=True,
+            carne_width_pct=carne_width_pct,
+        )
+        pdf.drawBoletoCarneDuplo(lista_boletos[0], lista_boletos[1])
+        pdf.nextPage()
+        pdf.save()
+        return
+
+    pdf = BoletoPDF(saida_pdf, landscape=False)
+    for i in range(0, n, 3):
+        b1 = lista_boletos[i]
+        b2 = lista_boletos[i + 1] if (i + 1) < n else None
+        b3 = lista_boletos[i + 2] if (i + 2) < n else None
+        pdf.drawBoletoTriploPorPagina(b1, b2, b3)
+        pdf.nextPage()
+    pdf.save()
 
 
 if __name__ == "__main__":
@@ -135,4 +155,8 @@ if __name__ == "__main__":
                 provider_logo_url=provider_logo,
             )
         )
-    render_boletos(parcelas, "boleto-openpix-itau-carne.pdf")
+    render_boletos(
+        parcelas,
+        "boleto-openpix-itau-carne.pdf",
+        carne_width_pct=0.6,
+    )

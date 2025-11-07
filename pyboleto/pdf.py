@@ -10,17 +10,16 @@
 
 """
 import os
-from decimal import Decimal, InvalidOperation
+import base64
 from io import BytesIO
-from urllib.request import urlopen
 
 from reportlab.graphics.barcode.common import I2of5
 from reportlab.lib.colors import black
 from reportlab.lib.pagesizes import A4, landscape as pagesize_landscape
 from reportlab.lib.units import mm, cm
-from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
 
 class BoletoPDF(object):
@@ -40,7 +39,7 @@ class BoletoPDF(object):
     """
     # pylint: disable=too-many-instance-attributes
 
-    def __init__(self, file_descr, landscape=False):
+    def __init__(self, file_descr, landscape=False, carne_width_pct=None):
         self.width = 190 * mm
         self.width_canhoto = 70 * mm
         self.height_line = 6.5 * mm
@@ -50,10 +49,15 @@ class BoletoPDF(object):
         self.delta_title = self.height_line - (self.font_size_title + 1)
         self.delta_font = self.font_size_value + 1
 
+        self.carne_width_pct = carne_width_pct
+
         if landscape:
             pagesize = pagesize_landscape(A4)
         else:
             pagesize = A4
+
+        self.pagesize = pagesize
+        self.page_width, self.page_height = pagesize
 
         self.pdf_canvas = canvas.Canvas(file_descr, pagesize=pagesize)
         self.pdf_canvas.setStrokeColor(black)
@@ -103,7 +107,7 @@ class BoletoPDF(object):
         self.pdf_canvas.setFont('Helvetica-Bold', 6)
         self.pdf_canvas.drawRightString(self.width_canhoto,
                                         0 * self.height_line + 3,
-                                        'Recibo do Pagador')
+                                        'Recibo do Sacado')
 
         # Titles
         self.pdf_canvas.setFont('Helvetica', 6)
@@ -122,7 +126,7 @@ class BoletoPDF(object):
         self.pdf_canvas.drawString(
             self.space,
             (((linha_inicial + 1) * self.height_line)) + self.delta_title,
-            'Agência/Código Beneficiário'
+            'Agência/Código Cedente'
         )
         self.pdf_canvas.drawString(
             self.width_canhoto - (35 * mm) + self.space,
@@ -250,7 +254,7 @@ class BoletoPDF(object):
         self.pdf_canvas.drawRightString(
             self.width,
             (linha_inicial + 3) * self.height_line + 3,
-            'Recibo do Pagador'
+            'Recibo do Sacado'
         )
 
         # Titles
@@ -266,17 +270,17 @@ class BoletoPDF(object):
         self.pdf_canvas.drawString(
             0,
             (((linha_inicial + 2) * self.height_line)) + self.delta_title,
-            'Beneficiário'
+            'Cedente'
         )
         self.pdf_canvas.drawString(
             self.width - (30 * mm) - (35 * mm) - (40 * mm) + self.space,
             (((linha_inicial + 2) * self.height_line)) + self.delta_title,
-            'Agência/Código Beneficiário'
+            'Agência/Código Cedente'
         )
         self.pdf_canvas.drawString(
             self.width - (30 * mm) - (35 * mm) + self.space,
             (((linha_inicial + 2) * self.height_line)) + self.delta_title,
-            'CPF/CNPJ Beneficiário'
+            'CPF/CNPJ Cedente'
         )
         self.pdf_canvas.drawString(
             self.width - (30 * mm) + self.space,
@@ -287,7 +291,7 @@ class BoletoPDF(object):
         self.pdf_canvas.drawString(
             0,
             (((linha_inicial + 1) * self.height_line)) + self.delta_title,
-            'Pagador')
+            'Sacado')
         self.pdf_canvas.drawString(
             self.width - (30 * mm) - (35 * mm) - (40 * mm) + self.space,
             (((linha_inicial + 1) * self.height_line)) + self.delta_title,
@@ -305,7 +309,7 @@ class BoletoPDF(object):
         self.pdf_canvas.drawString(
             0,
             (((linha_inicial + 0) * self.height_line)) + self.delta_title,
-            'Endereço Beneficiário'
+            'Endereço Cedente'
         )
         self.pdf_canvas.drawString(
             self.width - (30 * mm) + self.space,
@@ -353,7 +357,7 @@ class BoletoPDF(object):
                            ) > 8.4 * cm):
 
             # sacado0 = sacado0[:-2] + u'\u2026'
-            sacado0 = sacado0[:-4] + '...'
+            sacado0 = sacado0[:-4] + u'...'
 
         self.pdf_canvas.drawString(
             0 + self.space,
@@ -401,6 +405,19 @@ class BoletoPDF(object):
                 demonstrativo[i])
 
         self.pdf_canvas.setFont('Helvetica', 9)
+
+        # Desenha QRCode se disponível
+        if boleto_dados.qrcode_base64:
+            qrcode_size = 25 * mm
+            qrcode_x = self.width - qrcode_size - (2 * mm)
+            qrcode_y = (linha_inicial + 0) * self.height_line + self.space - (30 * mm)
+            self._drawQRCode(
+                boleto_dados.qrcode_base64,
+                qrcode_x,
+                qrcode_y,
+                qrcode_size,
+                qrcode_size
+            )
 
         self.pdf_canvas.restoreState()
 
@@ -459,7 +476,7 @@ class BoletoPDF(object):
         self.pdf_canvas.drawString(0, y + self.space, 'Sacador / Avalista')
 
         y += self.height_line
-        self.pdf_canvas.drawString(0, y + self.delta_title, 'Pagador')
+        self.pdf_canvas.drawString(0, y + self.delta_title, 'Sacado')
         sacado = boleto_dados.sacado
 
         # Linha grossa dividindo o Sacado
@@ -477,7 +494,7 @@ class BoletoPDF(object):
 
         # Linha vertical limitando todos os campos da direita
         self.pdf_canvas.setLineWidth(1)
-        self.__verticalLine(self.width - (45 * mm), y, 9.5 * self.height_line)
+        self.__verticalLine(self.width - (45 * mm), y, 9 * self.height_line)
         self.pdf_canvas.drawString(
             self.width - (45 * mm) + self.space,
             y + self.delta_title,
@@ -523,89 +540,27 @@ class BoletoPDF(object):
         )
 
         self.pdf_canvas.setFont('Helvetica', self.font_size_value)
-        instrucoes = boleto_dados.instrucoes or []
-
-        right_col_x = self.width - (45 * mm)
-        left_box_x0, left_box_x1 = 0, right_col_x
-        gutter = 4 * self.space
-
-        qr_box = None
-        qr_url = getattr(boleto_dados, 'qrcode_pix_url', None)
-        if qr_url:
-            try:
-                qr_image = load_image_from_url(qr_url)
-                img_width, img_height = qr_image.getSize()
-                available_width = left_box_x1 - left_box_x0
-                if img_width and img_height and available_width > 0:
-                    qr_width = min(28 * mm, 0.30 * available_width)
-                    qr_height = qr_width * (float(img_height) / float(img_width))
-                    qr_top = y + (1.8 * self.delta_font)
-                    qr_x = left_box_x1 - qr_width - self.space
-                    qr_y = qr_top - qr_height
-                    min_y = 0
-                    if qr_y < min_y:
-                        available_height = qr_top - min_y
-                        if available_height > 0 and qr_height > 0:
-                            scale = available_height / qr_height
-                            qr_width *= scale
-                            qr_height *= scale
-                            qr_y = qr_top - qr_height
-                        else:
-                            qr_x = None
-                    if qr_x is not None and qr_width > 0 and qr_height > 0:
-                        qr_box = {
-                            'image': qr_image,
-                            'width': qr_width,
-                            'height': qr_height,
-                            'x': qr_x,
-                            'y': qr_y
-                        }
-            except Exception:
-                qr_box = None
-
-        font_name = self.pdf_canvas._fontname  # pylint: disable=protected-access
-        font_size = self.pdf_canvas._fontsize  # pylint: disable=protected-access
-
-        if qr_box:
-            try:
-                self.pdf_canvas.drawImage(
-                    qr_box['image'],
-                    qr_box['x'],
-                    qr_box['y'],
-                    qr_box['width'],
-                    qr_box['height'],
-                    preserveAspectRatio=True,
-                    anchor='sw'
-                )
-                self.pdf_canvas.setFont('Helvetica', 7)
-                label_y = qr_box['y'] - (0.4 * self.height_line)
-                self.pdf_canvas.drawCentredString(
-                    qr_box['x'] + (qr_box['width'] / 2.0),
-                    label_y,
-                    'Pagar com PIX'
-                )
-                self.pdf_canvas.setFont(font_name, font_size)
-            except Exception:
-                qr_box = None
-
-        if qr_box:
-            text_max_w = (qr_box['x'] - gutter) - (2 * self.space)
-            if text_max_w <= 0:
-                text_max_w = max(left_box_x1 - (2 * self.space), 1)
-        else:
-            text_max_w = left_box_x1 - (2 * self.space)
-
-        draw_y = y
-        for instr in instrucoes:
-            for line in self._wrap_text(instr, text_max_w, font_name, font_size):
-                self.pdf_canvas.drawString(
-                    2 * self.space,
-                    draw_y,
-                    line
-                )
-                draw_y -= self.delta_font
-
+        instrucoes = boleto_dados.instrucoes
+        for i in range(len(instrucoes)):
+            self.pdf_canvas.drawString(
+                2 * self.space,
+                y - (i * self.delta_font),
+                instrucoes[i]
+            )
         self.pdf_canvas.setFont('Helvetica', self.font_size_title)
+
+        # Desenha QRCode na área de instruções se disponível
+        if boleto_dados.qrcode_base64:
+            qrcode_size = 25 * mm
+            qrcode_x = self.width - (45 * mm) - qrcode_size - (2 * mm)
+            qrcode_y = y + self.space - (20 * mm)
+            self._drawQRCode(
+                boleto_dados.qrcode_base64,
+                qrcode_x,
+                qrcode_y,
+                qrcode_size,
+                qrcode_size
+            )
 
         # Linha horizontal com primeiro campo Uso do Banco
         y += self.height_line
@@ -664,9 +619,7 @@ class BoletoPDF(object):
             y + self.space,
             boleto_dados.quantidade
         )
-        valor = ''
-        if boleto_dados.valor != '0.00':
-            valor = self._formataValorParaExibir(boleto_dados.valor)
+        valor = self._formataValorParaExibir(boleto_dados.valor)
         self.pdf_canvas.drawString(
             ((30 + 20 + 20 + 20 + 20) * mm) + self.space,
             y + self.space,
@@ -675,26 +628,10 @@ class BoletoPDF(object):
         valor_documento = self._formataValorParaExibir(
             boleto_dados.valor_documento
         )
-        valor_desconto = self._formataValorParaExibir(
-            boleto_dados.valor_desconto
-        )
-        valor_cobrado = self._formataValorParaExibir(
-            boleto_dados.valor_cobrado
-        )
         self.pdf_canvas.drawRightString(
             self.width - 2 * self.space,
             y + self.space,
             valor_documento
-        )
-        self.pdf_canvas.drawRightString(
-            self.width - 2 * self.space,
-            y + self.space - 18,
-            valor_desconto
-        )
-        self.pdf_canvas.drawRightString(
-            self.width - 2 * self.space,
-            y + self.space - 90,
-            valor_cobrado
         )
         self.pdf_canvas.setFont('Helvetica', self.font_size_title)
 
@@ -773,20 +710,15 @@ class BoletoPDF(object):
         # Linha horizontal com primeiro campo Cedente
         y += self.height_line
         self.__horizontalLine(0, y, self.width)
-        self.pdf_canvas.drawString(0, y + self.delta_title + 10,
-                                   'Beneficiário')
+        self.pdf_canvas.drawString(0, y + self.delta_title, 'Cedente')
         self.pdf_canvas.drawString(
             self.width - (45 * mm) + self.space,
-            y + self.delta_title + 10,
-            boleto_dados.label_cedente
+            y + self.delta_title,
+            'Agência/Código cedente'
         )
 
         self.pdf_canvas.setFont('Helvetica', self.font_size_value)
-        beneficiario = '{} - CPF/CNPJ: {}'.format(
-            boleto_dados.cedente, boleto_dados.cedente_documento)
-        self.pdf_canvas.drawString(0, y + self.space + 10, beneficiario)
-        self.pdf_canvas.drawString(0, y + self.space,
-                                   boleto_dados.cedente_endereco)
+        self.pdf_canvas.drawString(0, y + self.space, boleto_dados.cedente)
         self.pdf_canvas.drawRightString(
             self.width - 2 * self.space,
             y + self.space,
@@ -795,7 +727,7 @@ class BoletoPDF(object):
         self.pdf_canvas.setFont('Helvetica', self.font_size_title)
 
         # Linha horizontal com primeiro campo Local de Pagamento
-        y += self.height_line + 10
+        y += self.height_line
         self.__horizontalLine(0, y, self.width)
         self.pdf_canvas.drawString(
             0,
@@ -898,6 +830,46 @@ class BoletoPDF(object):
         x += d[0]
         return x, d[1]
 
+    def drawBoletoTriploPorPagina(self, boleto_dados1,
+                                  boleto_dados2=None,
+                                  boleto_dados3=None):
+        """Imprime até três recibos de caixa em uma única página.
+
+        Este layout é útil quando se deseja economizar papel mantendo apenas
+        a Ficha de Compensação (sem o Recibo do Sacado) em páginas no formato
+        retrato.
+
+        :param boleto_dados1: Primeiro boleto a ser impresso (obrigatório)
+        :param boleto_dados2: Segundo boleto opcional
+        :param boleto_dados3: Terceiro boleto opcional
+        :type boleto_dadosX: :class:`pyboleto.data.BoletoData`
+        """
+
+        boletos = [b for b in (boleto_dados1,
+                               boleto_dados2,
+                               boleto_dados3) if b]
+        if not boletos:
+            return (self.width, 0)
+
+        margin_bottom = 4 * mm
+        gap = 2 * mm
+        x = 9 * mm
+        y = margin_bottom
+        consumed_height = y
+
+        for index, boleto in enumerate(boletos):
+            _, bloco_height = self._drawReciboCaixa(boleto, x, y)
+            y += bloco_height
+            consumed_height = y
+
+            if index < len(boletos) - 1:
+                corte_y = y + (gap / 2.0)
+                self._drawHorizontalCorteLine(x, corte_y, self.width)
+                y += gap
+                consumed_height = y
+
+        return (self.width, consumed_height)
+
     def drawBoleto(self, boleto_dados):
         """Imprime Boleto Convencional
 
@@ -922,10 +894,6 @@ class BoletoPDF(object):
         y += 20 * mm
         d = self._drawReciboSacado(boleto_dados, x, y)
         y += d[1]
-
-        title = "%s - %s" % (boleto_dados.sacado_nome,
-                             boleto_dados.numero_documento)
-        self.pdf_canvas.setTitle(title)
         return (self.width, y)
 
     def nextPage(self):
@@ -945,49 +913,18 @@ class BoletoPDF(object):
         self.pdf_canvas.line(x, y, x, y + width)
 
     def _formataValorParaExibir(self, nfloat):
-        if nfloat is None:
-            return ""
-        if isinstance(nfloat, (int, float, Decimal)):
-            try:
-                value = Decimal(str(nfloat))
-                txt = format(value, '.2f')
-            except (InvalidOperation, ValueError):
-                txt = str(nfloat)
+        if nfloat:
+            txt = nfloat
+            txt = txt.replace('.', ',')
         else:
-            txt = str(nfloat)
-        return txt.replace('.', ',')
-
-    def _wrap_text(self, text, max_width, font_name='Helvetica', font_size=None):
-        """Wrap instructions text so it respects a maximum drawing width."""
-        if text is None:
-            text = ''
-        if font_size is None:
-            font_size = self.font_size_value
-        if max_width <= 0:
-            return [text]
-        cleaned = str(text)
-        if not cleaned:
-            return ['']
-        words = cleaned.split()
-        if not words:
-            return ['']
-        lines = []
-        current = words[0]
-        for word in words[1:]:
-            candidate = f'{current} {word}'
-            if stringWidth(candidate, font_name, font_size) <= max_width:
-                current = candidate
-            else:
-                lines.append(current)
-                current = word
-        lines.append(current)
-        return lines
+            txt = ""
+        return txt
 
     def _codigoBarraI25(self, num, x, y):
         """Imprime Código de barras otimizado para boletos
 
-        O código de barras é otmizado para que o comprimento seja sempre o
-        estipulado pela Febraban de 103mm.
+        O código de barras é otmizado para que o comprimeto seja sempre o
+        estipulado pela febraban de 103mm.
 
         """
         # http://en.wikipedia.org/wiki/Interleaved_2_of_5
@@ -1012,12 +949,40 @@ class BoletoPDF(object):
 
         bc.drawOn(self.pdf_canvas, x, y)
 
+    def _drawQRCode(self, qrcode_base64, x, y, width, height):
+        """Desenha QRCode a partir de uma string base64
 
-def load_image_from_url(url):
-    """Fetch image bytes from URL and return an ImageReader."""
-    with urlopen(url, timeout=10) as response:
-        data = response.read()
-    return ImageReader(BytesIO(data))
+        :param qrcode_base64: String base64 da imagem do QRCode
+        :param x: Posição X
+        :param y: Posição Y
+        :param width: Largura da imagem
+        :param height: Altura da imagem
+        """
+        if not qrcode_base64:
+            return
+
+        try:
+            # Remove o prefixo data:image se existir
+            if qrcode_base64.startswith('data:image'):
+                qrcode_base64 = qrcode_base64.split(',', 1)[1]
+
+            # Decodifica o base64
+            qrcode_bytes = base64.b64decode(qrcode_base64)
+            qrcode_buffer = BytesIO(qrcode_bytes)
+
+            # Cria ImageReader e desenha no canvas
+            qrcode_image = ImageReader(qrcode_buffer)
+            self.pdf_canvas.drawImage(
+                qrcode_image,
+                x, y,
+                width, height,
+                preserveAspectRatio=True,
+                anchor='c',
+                mask='auto'
+            )
+        except Exception as e:
+            # Se falhar ao desenhar o QRCode, apenas ignora
+            pass
 
 
 def load_image(logo_image):
