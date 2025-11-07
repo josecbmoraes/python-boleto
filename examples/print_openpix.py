@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import base64
 import datetime
 from decimal import Decimal
+from urllib.request import urlopen
 
 from pyboleto.bank.itau import BoletoItau
 from pyboleto.pdf import BoletoPDF
@@ -14,6 +16,18 @@ from pyboleto.pdf import BoletoPDF
 #   (2) Desenhar badge "Processado por Woovi (OpenPix)" no rodapé/área informativa do Recibo do Caixa.
 
 
+def _qrcode_url_to_base64(url: str | None) -> str | None:
+    if not url:
+        return None
+    try:
+        with urlopen(url) as response:
+            data = response.read()
+        return base64.b64encode(data).decode("ascii")
+    except Exception as exc:  # pragma: no cover - helper should not break demo
+        print(f"[warn] Falha ao baixar QRCode ({exc})")
+        return None
+
+
 def build_boleto_itau(
     *,
     valor_documento: Decimal | float | str,
@@ -23,7 +37,6 @@ def build_boleto_itau(
     sacado_linhas: list[str],
     qrcode_pix_url: str | None = None,
     provider_name: str | None = "Woovi",
-    provider_logo_url: str | None = None,
     provider_note: str | None = "Processado por Woovi (OpenPix)",
 ) -> BoletoItau:
     d = BoletoItau()
@@ -66,10 +79,10 @@ def build_boleto_itau(
 
     # ======== PIX (QR Code) ========
     d.qrcode_pix_url = qrcode_pix_url
+    d.qrcode_base64 = _qrcode_url_to_base64(qrcode_pix_url)
 
     # ======== BADGE DO PROVEDOR ========
     d.provider_name = provider_name
-    d.provider_logo_url = provider_logo_url
     d.provider_note = provider_note
 
     return d
@@ -120,7 +133,6 @@ def render_boletos(
 
 if __name__ == "__main__":
     qr_url = "https://api.woovi-sandbox.com/openpix/charge/brcode/image/4830ef79-d099-404e-90b3-9ccb28d57adf.png"
-    provider_logo = "https://cdn.exemplo.com/brand/woovi-logo.png"
 
     p1 = build_boleto_itau(
         valor_documento=Decimal("215.80"),
@@ -133,13 +145,12 @@ if __name__ == "__main__":
             "CEP 00000-000",
         ],
         qrcode_pix_url=qr_url,
-        provider_logo_url=provider_logo,
     )
     render_boletos([p1], "boleto-openpix-itau-normal.pdf")
 
     parcelas = []
     base_venc = datetime.date.today() + datetime.timedelta(days=7)
-    for idx in range(3):
+    for idx in range(6):
         parcelas.append(
             build_boleto_itau(
                 valor_documento=Decimal("215.80"),
@@ -152,7 +163,6 @@ if __name__ == "__main__":
                     "CEP 00000-000",
                 ],
                 qrcode_pix_url=qr_url,
-                provider_logo_url=provider_logo,
             )
         )
     render_boletos(
