@@ -537,9 +537,9 @@ class BoletoPDF(object):
                 img_width, img_height = qr_image.getSize()
                 available_width = left_box_x1 - left_box_x0
                 if img_width and img_height and available_width > 0:
-                    qr_width = min(20 * mm, 0.15 * available_width)
+                    qr_width = min(28 * mm, 0.30 * available_width)
                     qr_height = qr_width * (float(img_height) / float(img_width))
-                    qr_top = y + (0.5 * self.delta_font)
+                    qr_top = y + (1.8 * self.delta_font)
                     qr_x = left_box_x1 - qr_width - self.space
                     qr_y = qr_top - qr_height
                     min_y = 0
